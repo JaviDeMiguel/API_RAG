@@ -1,7 +1,6 @@
 # Asistente Virtual para Documentos (RAG)
 
 [![CI](https://github.com/JaviDeMiguel/API_RAG/actions/workflows/ci.yml/badge.svg)](https://github.com/JaviDeMiguel/API_RAG/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/JaviDeMiguel/API_RAG/branch/main/graph/badge.svg)](https://codecov.io/gh/JaviDeMiguel/API_RAG)
 
 API construida con **FastAPI** que implementa un sistema **RAG** (Retrieval-Augmented
 Generation): te registras, subes un texto largo o un PDF y le haces preguntas en
