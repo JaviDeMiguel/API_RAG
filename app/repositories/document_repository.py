@@ -1,12 +1,11 @@
-"""Acceso a datos de documentos y sus fragmentos (SQLite).
+"""Acceso a datos de los metadatos de documentos (SQLite).
 
-Cada fragmento se guarda junto con su vector de embedding (serializado como
-JSON) para permitir la recuperación por similitud de coseno. Todos los
-documentos pertenecen a un usuario, de modo que las consultas se filtran
-siempre por `user_id`.
+Guarda los metadatos relacionales de cada documento (propietario, título,
+contenido, nº de fragmentos, fecha). Los fragmentos y sus embeddings viven en
+la base de datos vectorial (ChromaDB, ver `vector_store.py`). Todas las
+consultas se filtran por `user_id` para acotar el acceso al propietario.
 """
 
-import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from uuid import uuid4
@@ -14,15 +13,6 @@ from uuid import uuid4
 from fastapi import Depends
 
 from app.db import Database, get_database
-
-
-@dataclass
-class StoredChunk:
-    """Fragmento de un documento con su vector de embedding."""
-
-    index: int
-    text: str
-    embedding: list[float]
 
 
 @dataclass
@@ -39,7 +29,7 @@ class DocumentRecord:
 
 
 class DocumentRepository:
-    """Operaciones de persistencia sobre documentos y fragmentos."""
+    """Operaciones de persistencia sobre los metadatos de documentos."""
 
     def __init__(self, db: Database) -> None:
         self._db = db
@@ -49,24 +39,16 @@ class DocumentRepository:
         user_id: str,
         title: str,
         content: str,
-        chunks: list[StoredChunk],
+        chunk_count: int,
     ) -> DocumentRecord:
-        """Guarda un documento y todos sus fragmentos con embeddings."""
+        """Guarda los metadatos de un documento y devuelve el registro creado."""
         document_id = uuid4().hex
         created_at = datetime.now(timezone.utc).isoformat()
 
         self._db.execute(
-            "INSERT INTO documents (id, user_id, title, content, created_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (document_id, user_id, title, content, created_at),
-        )
-        self._db.executemany(
-            "INSERT INTO chunks (document_id, idx, text, embedding) "
-            "VALUES (?, ?, ?, ?)",
-            [
-                (document_id, chunk.index, chunk.text, json.dumps(chunk.embedding))
-                for chunk in chunks
-            ],
+            "INSERT INTO documents (id, user_id, title, content, chunk_count, "
+            "created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (document_id, user_id, title, content, chunk_count, created_at),
         )
 
         return DocumentRecord(
@@ -75,19 +57,16 @@ class DocumentRepository:
             title=title,
             created_at=created_at,
             char_count=len(content),
-            chunk_count=len(chunks),
+            chunk_count=chunk_count,
             content=content,
         )
 
     def list_by_user(self, user_id: str) -> list[DocumentRecord]:
         """Lista los documentos de un usuario (sin el contenido completo)."""
         rows = self._db.query_all(
-            "SELECT d.id, d.user_id, d.title, d.created_at, "
-            "       LENGTH(d.content) AS char_count, "
-            "       (SELECT COUNT(*) FROM chunks c WHERE c.document_id = d.id) "
-            "           AS chunk_count "
-            "FROM documents d WHERE d.user_id = ? "
-            "ORDER BY d.created_at DESC",
+            "SELECT id, user_id, title, created_at, chunk_count, "
+            "       LENGTH(content) AS char_count "
+            "FROM documents WHERE user_id = ? ORDER BY created_at DESC",
             (user_id,),
         )
         return [
@@ -105,11 +84,9 @@ class DocumentRepository:
     def get(self, document_id: str, user_id: str) -> DocumentRecord | None:
         """Recupera un documento del usuario (con su contenido)."""
         row = self._db.query_one(
-            "SELECT d.id, d.user_id, d.title, d.content, d.created_at, "
-            "       LENGTH(d.content) AS char_count, "
-            "       (SELECT COUNT(*) FROM chunks c WHERE c.document_id = d.id) "
-            "           AS chunk_count "
-            "FROM documents d WHERE d.id = ? AND d.user_id = ?",
+            "SELECT id, user_id, title, content, created_at, chunk_count, "
+            "       LENGTH(content) AS char_count "
+            "FROM documents WHERE id = ? AND user_id = ?",
             (document_id, user_id),
         )
         if row is None:
@@ -124,31 +101,26 @@ class DocumentRepository:
             chunk_count=row["chunk_count"],
         )
 
-    def get_chunks(self, document_id: str) -> list[StoredChunk]:
-        """Devuelve todos los fragmentos (con embeddings) de un documento."""
+    def titles(
+        self, user_id: str, document_ids: list[str]
+    ) -> dict[str, str]:
+        """Devuelve `{id: título}` para los documentos del usuario indicados."""
+        if not document_ids:
+            return {}
+        placeholders = ",".join("?" * len(document_ids))
         rows = self._db.query_all(
-            "SELECT idx, text, embedding FROM chunks "
-            "WHERE document_id = ? ORDER BY idx",
-            (document_id,),
+            f"SELECT id, title FROM documents "
+            f"WHERE user_id = ? AND id IN ({placeholders})",
+            (user_id, *document_ids),
         )
-        return [
-            StoredChunk(
-                index=row["idx"],
-                text=row["text"],
-                embedding=json.loads(row["embedding"]),
-            )
-            for row in rows
-        ]
+        return {row["id"]: row["title"] for row in rows}
 
     def delete(self, document_id: str, user_id: str) -> bool:
-        """Elimina un documento del usuario. Devuelve `True` si existía."""
-        # Borramos primero los fragmentos por si las claves foráneas en cascada
-        # no estuvieran activas en algún entorno.
-        self._db.execute(
-            "DELETE FROM chunks WHERE document_id = "
-            "(SELECT id FROM documents WHERE id = ? AND user_id = ?)",
-            (document_id, user_id),
-        )
+        """Elimina un documento del usuario. Devuelve `True` si existía.
+
+        No borra los fragmentos vectoriales: de eso se encarga el servicio a
+        través del almacén vectorial.
+        """
         row = self._db.query_one(
             "SELECT id FROM documents WHERE id = ? AND user_id = ?",
             (document_id, user_id),

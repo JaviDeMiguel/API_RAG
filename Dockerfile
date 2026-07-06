@@ -5,7 +5,8 @@ FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    DB_PATH=/app/data/app.db
+    DB_PATH=/app/data/app.db \
+    CHROMA_PATH=/app/data/chroma
 
 WORKDIR /app
 
@@ -23,7 +24,7 @@ RUN useradd --create-home appuser \
     && chown -R appuser:appuser /app
 USER appuser
 
-# Volumen para conservar la base de datos SQLite entre reinicios.
+# Volumen para conservar la BD SQLite y la base vectorial de Chroma entre reinicios.
 VOLUME ["/app/data"]
 
 EXPOSE 8000

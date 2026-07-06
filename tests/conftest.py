@@ -11,12 +11,14 @@ import os
 
 # Debe fijarse ANTES de importar la configuración de la app.
 os.environ["DB_PATH"] = ":memory:"
+os.environ["CHROMA_PATH"] = ":memory:"  # base vectorial efímera en memoria
 os.environ["JWT_SECRET"] = "clave-de-test-suficientemente-larga-para-hs256-123"
 
 import pytest
 from fastapi.testclient import TestClient
 
 import app.db as db_module
+import app.repositories.vector_store as vector_store_module
 from app.config import get_settings
 from app.main import app
 
@@ -32,11 +34,21 @@ class RecordingLLM:
     def __init__(self, settings=None) -> None:  # firma compatible con LLMService
         pass
 
+    def ensure_configured(self) -> None:
+        pass
+
     def answer(self, question: str, context_chunks: list[str]) -> str:
         RecordingLLM.calls.append(
             {"question": question, "context": list(context_chunks)}
         )
         return "RESPUESTA-SIMULADA-DEL-LLM"
+
+    def answer_stream(self, question: str, context_chunks: list[str]):
+        RecordingLLM.calls.append(
+            {"question": question, "context": list(context_chunks), "stream": True}
+        )
+        for token in ["RESPUESTA-", "SIMULADA-", "DEL-", "LLM"]:
+            yield token
 
 
 @pytest.fixture
@@ -49,8 +61,12 @@ def llm() -> type[RecordingLLM]:
 @pytest.fixture
 def client(monkeypatch, llm) -> TestClient:
     """Cliente de pruebas con BD en memoria nueva y el LLM mockeado."""
-    # BD nueva por test (aislamiento entre tests).
+    # BD relacional nueva por test (aislamiento entre tests).
     db_module._database = None
+    # El cliente efímero de Chroma comparte sistema en el proceso, así que
+    # reconstruimos el almacén y vaciamos la colección para aislar cada test.
+    vector_store_module._vector_store = None
+    vector_store_module.get_vector_store().reset()
     # Sustituimos el LLM que usa la fábrica del servicio de documentos.
     monkeypatch.setattr("app.services.document_service.LLMService", llm)
 
@@ -58,6 +74,7 @@ def client(monkeypatch, llm) -> TestClient:
     yield test_client
 
     db_module._database = None
+    vector_store_module._vector_store = None
 
 
 @pytest.fixture

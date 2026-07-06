@@ -6,3 +6,6 @@ anthropic>=0.40
 pypdf>=4.2
 python-multipart>=0.0.9
 pyjwt>=2.8
+chromadb>=0.5
+# Opcional: solo se necesita si EMBEDDING_PROVIDER=voyage (embeddings semánticos).
+voyageai>=0.3

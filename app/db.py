@@ -22,26 +22,20 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 CREATE TABLE IF NOT EXISTS documents (
-    id         TEXT PRIMARY KEY,
-    user_id    TEXT NOT NULL,
-    title      TEXT NOT NULL,
-    content    TEXT NOT NULL,
-    created_at TEXT NOT NULL,
+    id          TEXT PRIMARY KEY,
+    user_id     TEXT NOT NULL,
+    title       TEXT NOT NULL,
+    content     TEXT NOT NULL,
+    chunk_count INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT NOT NULL,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS chunks (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    document_id TEXT NOT NULL,
-    idx         INTEGER NOT NULL,
-    text        TEXT NOT NULL,
-    embedding   TEXT NOT NULL,
-    FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
-);
-
 CREATE INDEX IF NOT EXISTS idx_documents_user ON documents(user_id);
-CREATE INDEX IF NOT EXISTS idx_chunks_document ON chunks(document_id);
 """
+
+# Nota: los fragmentos (texto + embedding) ya no se guardan en SQLite; viven en
+# la base de datos vectorial (ChromaDB, ver `repositories/vector_store.py`).
 
 
 class Database:

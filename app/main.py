@@ -11,7 +11,7 @@ from fastapi import FastAPI
 
 from app import __version__
 from app.db import get_database
-from app.routers import auth, documents, questions
+from app.routers import auth, documents, questions, search
 
 
 @asynccontextmanager
@@ -36,6 +36,7 @@ app = FastAPI(
 app.include_router(auth.router)
 app.include_router(documents.router)
 app.include_router(questions.router)
+app.include_router(search.router)
 
 
 @app.get("/health", tags=["salud"], summary="Comprobación de estado")

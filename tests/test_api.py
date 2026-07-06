@@ -1,23 +1,35 @@
 """Pruebas de extremo a extremo de la API (con el LLM mockeado).
 
 Ejercitan los endpoints reales —autenticación, ingesta, recuperación por
-embeddings y aislamiento entre usuarios— sin llamar a la API del LLM.
+embeddings, búsqueda global, streaming y aislamiento entre usuarios— sin llamar
+a la API del LLM.
 """
 
+import json
 
-def _crear_documento(client, headers) -> str:
-    texto = (
+
+def _crear_documento(client, headers, title="Apuntes", content=None) -> str:
+    texto = content or (
         "La fotosintesis permite a las plantas producir energia a partir de la luz. "
         "El interes compuesto hace crecer el capital con el tiempo. "
         "Los volcanes expulsan lava y ceniza durante una erupcion. "
     ) * 4
     resp = client.post(
         "/documents",
-        json={"title": "Apuntes", "content": texto},
+        json={"title": title, "content": texto},
         headers=headers,
     )
     assert resp.status_code == 201
     return resp.json()["id"]
+
+
+def _sse_eventos(texto: str) -> list[dict]:
+    """Parsea el cuerpo de una respuesta SSE en una lista de objetos JSON."""
+    return [
+        json.loads(linea[len("data: ") :])
+        for linea in texto.splitlines()
+        if linea.startswith("data: ")
+    ]
 
 
 def test_documents_requiere_autenticacion(client):
@@ -109,6 +121,95 @@ def test_validacion_pydantic(client, auth_headers):
         f"/documents/{doc_id}/ask", json={"question": "ab"}, headers=auth_headers
     )
     assert resp.status_code == 422
+
+
+def test_ask_stream_devuelve_sse_con_fuentes_y_texto(client, auth_headers, llm):
+    doc_id = _crear_documento(client, auth_headers)
+
+    resp = client.post(
+        f"/documents/{doc_id}/ask/stream",
+        json={"question": "¿Como obtienen energia las plantas?"},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/event-stream")
+
+    eventos = _sse_eventos(resp.text)
+    # Primero las fuentes, al final 'done'.
+    assert eventos[0]["type"] == "sources"
+    assert eventos[0]["sources"]  # la recuperación devolvió fragmentos
+    assert eventos[-1]["type"] == "done"
+
+    # El texto reconstruido a partir de los tokens coincide con el del LLM.
+    texto = "".join(e["text"] for e in eventos if e["type"] == "token")
+    assert texto == "RESPUESTA-SIMULADA-DEL-LLM"
+
+    # Se usó la vía de streaming del LLM.
+    assert llm.calls[0].get("stream") is True
+
+
+def test_ask_stream_documento_inexistente(client, auth_headers):
+    resp = client.post(
+        "/documents/inexistente/ask/stream",
+        json={"question": "cualquier cosa"},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 404
+
+
+def test_busqueda_global_entre_documentos(client, auth_headers):
+    plantas = _crear_documento(
+        client,
+        auth_headers,
+        title="Botanica",
+        content=(
+            "La fotosintesis permite a las plantas producir energia con la luz. "
+            "Las hojas captan la luz solar para crecer. "
+        ) * 4,
+    )
+    _crear_documento(
+        client,
+        auth_headers,
+        title="Finanzas",
+        content=("El interes compuesto hace crecer el capital ahorrado. ") * 4,
+    )
+
+    resp = client.post(
+        "/search",
+        json={"query": "energia de las plantas y fotosintesis", "top_k": 3},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["query"] == "energia de las plantas y fotosintesis"
+    assert data["results"], "la búsqueda debería devolver resultados"
+
+    top = data["results"][0]
+    # El fragmento más relevante procede del documento de botánica.
+    assert top["document_id"] == plantas
+    assert top["title"] == "Botanica"
+    assert "score" in top and "text" in top
+
+
+def test_busqueda_requiere_autenticacion(client):
+    assert client.post("/search", json={"query": "algo relevante"}).status_code == 401
+
+
+def test_busqueda_aislada_por_usuario(client, auth_headers):
+    _crear_documento(client, auth_headers)
+
+    client.post("/auth/register", json={"username": "frank", "password": "clave-segura-5"})
+    token = client.post(
+        "/auth/token", data={"username": "frank", "password": "clave-segura-5"}
+    ).json()["access_token"]
+    otros = {"Authorization": f"Bearer {token}"}
+
+    # El segundo usuario no encuentra fragmentos de los documentos del primero.
+    resp = client.post(
+        "/search", json={"query": "fotosintesis plantas energia"}, headers=otros
+    )
+    assert resp.status_code == 200
+    assert resp.json()["results"] == []
 
 
 def test_ciclo_de_vida_del_documento(client, auth_headers):

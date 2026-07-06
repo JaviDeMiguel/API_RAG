@@ -10,22 +10,31 @@ Todas las operaciones están acotadas al usuario propietario del documento.
 """
 
 from io import BytesIO
+from typing import Iterator
 
 from fastapi import Depends
 from pypdf import PdfReader
 
 from app.config import Settings, get_settings
-from app.models.schemas import AnswerResponse, SourceChunk
+from app.models.schemas import (
+    AnswerResponse,
+    SearchResponse,
+    SearchResult,
+    SourceChunk,
+)
 from app.repositories.document_repository import (
     DocumentRecord,
     DocumentRepository,
-    StoredChunk,
     get_document_repository,
+)
+from app.repositories.vector_store import (
+    ChunkVectorStore,
+    StoredChunk,
+    get_vector_store,
 )
 from app.services import text_utils
 from app.services.embedding_service import (
     EmbeddingProvider,
-    cosine_similarity,
     get_embedding_provider,
 )
 from app.services.llm_service import LLMService
@@ -45,11 +54,13 @@ class DocumentService:
     def __init__(
         self,
         repository: DocumentRepository,
+        vector_store: ChunkVectorStore,
         settings: Settings,
         llm_service: LLMService,
         embedding_provider: EmbeddingProvider,
     ) -> None:
         self._repository = repository
+        self._vectors = vector_store
         self._settings = settings
         self._llm = llm_service
         self._embeddings = embedding_provider
@@ -72,18 +83,20 @@ class DocumentService:
         if not fragments:
             raise EmptyDocumentError("No se pudo fragmentar el documento.")
 
+        # Vectorizamos todos los fragmentos de una vez: con proveedores remotos
+        # (p. ej. Voyage) esto es una única llamada en lote en lugar de N.
+        embeddings = self._embeddings.embed_documents(fragments)
         chunks = [
-            StoredChunk(
-                index=index,
-                text=fragment,
-                embedding=self._embeddings.embed(fragment),
-            )
-            for index, fragment in enumerate(fragments)
+            StoredChunk(index=index, text=fragment, embedding=embedding)
+            for index, (fragment, embedding) in enumerate(zip(fragments, embeddings))
         ]
 
-        return self._repository.add(
-            user_id=user_id, title=title, content=text, chunks=chunks
+        # Metadatos en SQLite; vectores en la base de datos vectorial (Chroma).
+        record = self._repository.add(
+            user_id=user_id, title=title, content=text, chunk_count=len(chunks)
         )
+        self._vectors.add(document_id=record.id, user_id=user_id, chunks=chunks)
+        return record
 
     def ingest_pdf(
         self, user_id: str, title: str, pdf_bytes: bytes
@@ -116,6 +129,8 @@ class DocumentService:
         """Elimina un documento del usuario o lanza `DocumentNotFoundError`."""
         if not self._repository.delete(document_id, user_id):
             raise DocumentNotFoundError(document_id)
+        # Los metadatos existían y se han borrado: eliminamos también sus vectores.
+        self._vectors.delete(document_id)
 
     # --- Pregunta / Respuesta (RAG) -----------------------------------------
 
@@ -141,28 +156,74 @@ class DocumentService:
             sources=sources,
         )
 
-    def _retrieve(self, document_id: str, question: str) -> list[SourceChunk]:
-        """Selecciona los fragmentos más similares a la pregunta por coseno."""
-        query_vector = self._embeddings.embed(question)
+    def answer_question_stream(
+        self, user_id: str, document_id: str, question: str
+    ) -> tuple[list[SourceChunk], Iterator[str]]:
+        """Como `answer_question`, pero devuelve la respuesta en streaming.
 
-        scored: list[SourceChunk] = []
-        for chunk in self._repository.get_chunks(document_id):
-            score = cosine_similarity(query_vector, chunk.embedding)
-            scored.append(
-                SourceChunk(index=chunk.index, text=chunk.text, score=score)
+        Realiza la comprobación de propiedad, la recuperación y valida que el
+        LLM está configurado **antes** de devolver el generador, de modo que los
+        errores (404 / 503) se produzcan antes de empezar a emitir la respuesta.
+
+        Returns:
+            Una tupla `(fuentes, generador_de_texto)`.
+        """
+        self.get_document(user_id, document_id)  # valida propiedad (404)
+
+        sources = self._retrieve(document_id, question)
+        context_chunks = [source.text for source in sources]
+
+        self._llm.ensure_configured()  # valida configuración (503) antes de emitir
+        token_stream = self._llm.answer_stream(
+            question=question, context_chunks=context_chunks
+        )
+        return sources, token_stream
+
+    # --- Búsqueda entre documentos ------------------------------------------
+
+    def search(
+        self, user_id: str, query: str, top_k: int | None = None
+    ) -> SearchResponse:
+        """Busca los fragmentos más relevantes entre TODOS los documentos del
+        usuario (no acotado a un único documento)."""
+        limit = top_k or self._settings.top_k
+        query_vector = self._embeddings.embed_query(query)
+        hits = self._vectors.query_user(user_id, query_vector, limit)
+
+        titles = self._repository.titles(
+            user_id, list({hit.document_id for hit in hits})
+        )
+        results = [
+            SearchResult(
+                document_id=hit.document_id,
+                title=titles.get(hit.document_id, ""),
+                index=hit.index,
+                text=hit.text,
+                score=hit.score,
             )
+            for hit in hits
+        ]
+        return SearchResponse(query=query, results=results)
 
-        scored.sort(key=lambda item: item.score, reverse=True)
-        return scored[: self._settings.top_k]
+    def _retrieve(self, document_id: str, question: str) -> list[SourceChunk]:
+        """Selecciona los fragmentos más similares a la pregunta.
+
+        La búsqueda por vecinos más cercanos (coseno) la realiza la base de
+        datos vectorial; aquí solo vectorizamos la pregunta y delegamos.
+        """
+        query_vector = self._embeddings.embed_query(question)
+        return self._vectors.query(document_id, query_vector, self._settings.top_k)
 
 
 def get_document_service(
     repository: DocumentRepository = Depends(get_document_repository),
+    vector_store: ChunkVectorStore = Depends(get_vector_store),
     settings: Settings = Depends(get_settings),
 ) -> DocumentService:
     """Dependencia de FastAPI que construye el servicio con sus colaboradores."""
     return DocumentService(
         repository=repository,
+        vector_store=vector_store,
         settings=settings,
         llm_service=LLMService(settings),
         embedding_provider=get_embedding_provider(settings),

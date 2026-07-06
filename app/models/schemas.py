@@ -92,6 +92,44 @@ class AnswerResponse(BaseModel):
     )
 
 
+# --- Búsqueda entre documentos ----------------------------------------------
+
+class SearchRequest(BaseModel):
+    """Consulta para buscar fragmentos en todos los documentos del usuario."""
+
+    query: str = Field(
+        ...,
+        min_length=3,
+        max_length=2000,
+        description="Texto de búsqueda en lenguaje natural.",
+    )
+    top_k: int | None = Field(
+        default=None,
+        ge=1,
+        le=50,
+        description="Nº de fragmentos a devolver (por defecto, el de la config).",
+    )
+
+
+class SearchResult(BaseModel):
+    """Fragmento relevante encontrado, con el documento al que pertenece."""
+
+    document_id: str
+    title: str = Field(..., description="Título del documento de origen.")
+    index: int = Field(..., description="Posición del fragmento en el documento.")
+    text: str
+    score: float = Field(
+        ..., description="Similitud (coseno) del fragmento frente a la consulta."
+    )
+
+
+class SearchResponse(BaseModel):
+    """Resultados de una búsqueda entre los documentos del usuario."""
+
+    query: str
+    results: list[SearchResult] = Field(default_factory=list)
+
+
 class ErrorResponse(BaseModel):
     """Forma estándar de los errores devueltos por la API."""
 
