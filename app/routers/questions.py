@@ -1,7 +1,7 @@
 """Ruta para formular preguntas sobre un documento (endpoint RAG)."""
 
 import json
-from typing import Iterator
+from collections.abc import Iterator
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse

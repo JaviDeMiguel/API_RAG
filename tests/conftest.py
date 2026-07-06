@@ -47,8 +47,7 @@ class RecordingLLM:
         RecordingLLM.calls.append(
             {"question": question, "context": list(context_chunks), "stream": True}
         )
-        for token in ["RESPUESTA-", "SIMULADA-", "DEL-", "LLM"]:
-            yield token
+        yield from ["RESPUESTA-", "SIMULADA-", "DEL-", "LLM"]
 
 
 @pytest.fixture

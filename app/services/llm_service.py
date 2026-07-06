@@ -10,7 +10,7 @@ Ofrece dos modos de respuesta:
     (para respuestas incrementales en el endpoint SSE).
 """
 
-from typing import Iterator
+from collections.abc import Iterator
 
 import anthropic
 
@@ -125,5 +125,4 @@ class LLMService:
                 }
             ],
         ) as stream:
-            for text in stream.text_stream:
-                yield text
+            yield from stream.text_stream

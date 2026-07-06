@@ -66,7 +66,7 @@ def cosine_similarity(a: list[float], b: list[float]) -> float:
             f"({len(a)} vs {len(b)}). Probablemente el documento se indexó con "
             "otro proveedor o modelo de embeddings; vuelve a subirlo."
         )
-    return sum(x * y for x, y in zip(a, b))
+    return sum(x * y for x, y in zip(a, b, strict=True))
 
 
 def _normalize(vector: list[float]) -> list[float]:

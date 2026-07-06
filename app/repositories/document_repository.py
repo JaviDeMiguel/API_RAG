@@ -7,7 +7,7 @@ consultas se filtran por `user_id` para acotar el acceso al propietario.
 """
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from fastapi import Depends
@@ -43,7 +43,7 @@ class DocumentRepository:
     ) -> DocumentRecord:
         """Guarda los metadatos de un documento y devuelve el registro creado."""
         document_id = uuid4().hex
-        created_at = datetime.now(timezone.utc).isoformat()
+        created_at = datetime.now(UTC).isoformat()
 
         self._db.execute(
             "INSERT INTO documents (id, user_id, title, content, chunk_count, "

@@ -116,7 +116,7 @@ class ChunkVectorStore:
                 text=text,
                 score=1.0 - float(distance),
             )
-            for text, meta, distance in zip(documents, metadatas, distances)
+            for text, meta, distance in zip(documents, metadatas, distances, strict=True)
         ]
 
     def query_user(
@@ -144,7 +144,7 @@ class ChunkVectorStore:
                 text=text,
                 score=1.0 - float(distance),
             )
-            for text, meta, distance in zip(documents, metadatas, distances)
+            for text, meta, distance in zip(documents, metadatas, distances, strict=True)
         ]
 
     def delete(self, document_id: str) -> None:

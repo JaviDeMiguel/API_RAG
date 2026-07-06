@@ -24,6 +24,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
 
+      - name: Lint (ruff)
+        run: ruff check app tests
+
       - name: Ejecutar tests con cobertura
         run: pytest
 

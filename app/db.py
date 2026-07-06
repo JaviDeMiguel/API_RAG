@@ -7,8 +7,9 @@ Toda la aplicación comparte una única instancia de `Database`.
 
 import sqlite3
 import threading
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 from app.config import get_settings
 

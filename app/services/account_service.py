@@ -4,9 +4,9 @@ from fastapi import Depends
 
 from app.config import Settings, get_settings
 from app.repositories.user_repository import (
+    UsernameAlreadyExistsError,
     UserRecord,
     UserRepository,
-    UsernameAlreadyExistsError,
     get_user_repository,
 )
 from app.services import auth_service

@@ -9,8 +9,8 @@ Coordina las tres piezas del flujo:
 Todas las operaciones están acotadas al usuario propietario del documento.
 """
 
+from collections.abc import Iterator
 from io import BytesIO
-from typing import Iterator
 
 from fastapi import Depends
 from pypdf import PdfReader
@@ -88,7 +88,9 @@ class DocumentService:
         embeddings = self._embeddings.embed_documents(fragments)
         chunks = [
             StoredChunk(index=index, text=fragment, embedding=embedding)
-            for index, (fragment, embedding) in enumerate(zip(fragments, embeddings))
+            for index, (fragment, embedding) in enumerate(
+                zip(fragments, embeddings, strict=True)
+            )
         ]
 
         # Metadatos en SQLite; vectores en la base de datos vectorial (Chroma).

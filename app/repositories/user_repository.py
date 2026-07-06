@@ -2,7 +2,7 @@
 
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from fastapi import Depends
@@ -36,7 +36,7 @@ class UserRepository:
             id=uuid4().hex,
             username=username,
             password_hash=password_hash,
-            created_at=datetime.now(timezone.utc).isoformat(),
+            created_at=datetime.now(UTC).isoformat(),
         )
         try:
             self._db.execute(

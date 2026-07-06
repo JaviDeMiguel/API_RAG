@@ -4,14 +4,17 @@ import re
 
 # Palabras vacías (stopwords) básicas en español e inglés. No aportan a la
 # hora de medir la similitud entre la pregunta y los fragmentos.
-_STOPWORDS: frozenset[str] = frozenset(
-    """
-    el la los las un una unos unas de del a al y o u en con por para que como
-    se su sus lo le les es son fue ser este esta estos estas ese esa eso
-    the a an and or of to in on for with is are was were be this that these
-    those it its as at by from
-    """.split()
-)
+_STOPWORDS: frozenset[str] = frozenset([
+    # Español
+    "el", "la", "los", "las", "un", "una", "unos", "unas", "de", "del", "a", "al",
+    "y", "o", "u", "en", "con", "por", "para", "que", "como", "se", "su", "sus",
+    "lo", "le", "les", "es", "son", "fue", "ser", "este", "esta", "estos", "estas",
+    "ese", "esa", "eso",
+    # Inglés
+    "the", "an", "and", "or", "of", "to", "in", "on", "for", "with", "is", "are",
+    "was", "were", "be", "this", "that", "these", "those", "it", "its", "as", "at",
+    "by", "from",
+])
 
 _TOKEN_RE = re.compile(r"[^\W\d_]+", re.UNICODE)
 

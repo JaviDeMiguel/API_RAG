@@ -13,7 +13,6 @@ from app.services.embedding_service import (
     get_embedding_provider,
 )
 
-
 # --- Proveedor local -------------------------------------------------------
 
 
