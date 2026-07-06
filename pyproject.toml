@@ -1,0 +1,14 @@
+# Configuración de herramientas del proyecto (pytest + cobertura).
+# El proyecto se gestiona con requirements.txt; este archivo solo agrupa la
+# configuración de las herramientas de desarrollo.
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --cov=app --cov-report=term-missing --cov-report=xml --cov-fail-under=85"
+
+[tool.coverage.run]
+source = ["app"]
+omit = ["app/__init__.py"]
+
+[tool.coverage.report]
+show_missing = true
